@@ -186,7 +186,7 @@ regions = list(regions_coords.keys())
 region = st.selectbox("Choisir une région", regions)
 
 # Chargement de la carte et des données
-col1, col2 = st.columns([1, 2]) 
+col1, col2 = st.columns([1.5, 2]) 
 
 with col1:
   # TA CARTE
@@ -344,7 +344,7 @@ if st.session_state.selected_pokemon:
             st.markdown(f" {pokemon_data['name'].capitalize()} (ID: {pokemon_data['id']})""")
 
             # Layout en colonnes
-            col1, col2, col3 = st.columns([1, 2, 3])
+            col1, col2, col3 = st.columns([1, 2, 1])
 
             with col1:
                 # Affichage du sprite
@@ -427,7 +427,6 @@ if st.session_state.selected_pokemon:
             </div>
         </div>
         """, unsafe_allow_html=True)
-
 
 # Données brutes
 with st.expander("Données brutes"):
