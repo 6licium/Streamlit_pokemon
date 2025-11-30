@@ -1,16 +1,15 @@
 kanto_coords = {
-    # Villes
-    "pallet-town": (108, 340),
-    "viridian-city": (107, 269),
-    "pewter-city": (106, 150),
-    "cerulean-city": (295, 125),
-    "lavender-town": (390, 195),
-    "vermilion-city": (298, 290),
-    "celadon-city": (225, 196),
-    "fuchsia-city": (250, 385),
-    "cinnabar-island": (107, 432),
-    "saffron-city": (294, 196),
-    "indigo-plateau": (60, 125),
+    'pallet-town': (108, 134),
+ 'viridian-city': (107, 205),
+ 'pewter-city': (106, 324),
+ 'cerulean-city': (295, 349),
+ 'lavender-town': (390, 279),
+ 'vermilion-city': (294, 278),
+ 'celadon-city': (225, 278),
+ 'fuchsia-city': (250, 89),
+ 'cinnabar-island': (107, 42),
+ 'saffron-city': (298, 184),
+ 'indigo-plateau': (60, 349),
 
     # Routes
     "kanto-route-1": (109, 301),

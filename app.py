@@ -1,143 +1,226 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 from PIL import Image
 from collections import defaultdict
-from coords import regions_coords
 from io import BytesIO
 import base64
+import plotly.graph_objects as go
+from streamlit_plotly_events import plotly_events
+from coords import regions_coords
 
+# ---------------------------------------------------------
+# CONFIG STREAMLIT
+# ---------------------------------------------------------
+st.set_page_config(layout="wide")
 st.title("Cartes des régions Pokémon")
 
-# Sélection de la région
+# ---------------------------------------------------------
+# CACHES
+# ---------------------------------------------------------
+@st.cache_data
+def load_image(path):
+    img = Image.open(path)
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+    return img, encoded
+
+@st.cache_data
+def load_data():
+    return pd.read_csv("pokemon_location_encounters_full.csv")
+
+@st.cache_data
+def filter_region(df, region):
+    return df[df["region"] == region]
+
+# ---------------------------------------------------------
+# SELECT REGION
+# ---------------------------------------------------------
 regions = list(regions_coords.keys())
 region = st.selectbox("Choisir une région", regions)
 
-# Charger la carte
+# Chargement de la carte
 image_path = f"cartes/carte_{region.lower()}.png"
 try:
-    img = Image.open(image_path)
+    img, encoded_img = load_image(image_path)
 except FileNotFoundError:
-    st.error(f"L'image pour {region} est introuvable : {image_path}")
+    st.error(f"Image introuvable : {image_path}")
     st.stop()
 
-# Encode image
-buffer = BytesIO()
-img.save(buffer, format="PNG")
-encoded_img = base64.b64encode(buffer.getvalue()).decode()
+img_w, img_h = img.size
 
-# Charger les données
-try:
-    df = pd.read_csv("pokemon_location_encounters_full.csv")
-    df = df[df["region"] == region]
-except FileNotFoundError:
-    st.error("Fichier 'pokemon_location_encounters_full.csv' introuvable.")
-    st.stop()
+# Chargement des données
+df = load_data()
+df_region = filter_region(df, region)
 
-# Préparation
+# ---------------------------------------------------------
+# PREP DONNÉES
+# ---------------------------------------------------------
 coords = regions_coords[region]
 pokemon_by_location = defaultdict(list)
-for _, row in df.iterrows():
+for _, row in df_region.iterrows():
     pokemon_by_location[row["location"]].append(row.to_dict())
 
-# Création figure Plotly
+locations = []
+x_points = []
+y_points = []
+hover_texts = []
+
+for lieu, pokes in pokemon_by_location.items():
+    if lieu in coords:
+        x, y = coords[lieu]
+        locations.append(lieu)
+        x_points.append(x)
+        y_points.append(y)
+        hover_texts.append(f"{len(pokes)} Pokémon<br><b>Cliquez pour voir la liste</b>")
+
+# ---------------------------------------------------------
+# FIXED SIZE & SCALING
+# ---------------------------------------------------------
+FIXED_W = 900
+FIXED_H = int(FIXED_W * (img_h / img_w))
+
+scale_x = FIXED_W / img_w
+scale_y = FIXED_H / img_h
+
+scaled_x = [x * scale_x for x in x_points]
+scaled_y = [y * scale_y for y in y_points]  # PAS D'INVERSION — Plotly s’en occupe
+
+# ---------------------------------------------------------
+# FIGURE PLOTLY
+# ---------------------------------------------------------
 fig = go.Figure()
 
-# Image de fond
 fig.add_layout_image(
     dict(
         source="data:image/png;base64," + encoded_img,
         xref="x",
         yref="y",
         x=0,
-        y=img.size[1],
-        sizex=img.size[0],
-        sizey=img.size[1],
+        y=0,
+        sizex=FIXED_W,
+        sizey=FIXED_H,
         sizing="stretch",
-        layer="below"
+        layer="below",
     )
 )
 
-# Axes invisibles
-fig.update_xaxes(visible=False, range=[0, img.size[0]], fixedrange=True)
-fig.update_yaxes(visible=False, range=[img.size[1], 0], fixedrange=True)
+fig.update_xaxes(
+    visible=False,
+    range=[0, FIXED_W],
+    fixedrange=True
+)
+
+fig.update_yaxes(
+    visible=False,
+    range=[0, FIXED_H],
+    fixedrange=True,
+    autorange="reversed"   # CORRIGE LE BUG DE CLIC/HOVER
+)
+
+# Points cliquables
+fig.add_trace(
+    go.Scatter(
+        x=scaled_x,
+        y=scaled_y,
+        mode="markers",
+        marker=dict(
+            size=18,
+            color="white",
+            opacity=0.7,
+            line=dict(width=2, color="black")
+        ),
+        customdata=locations,
+        text=hover_texts,
+        hovertemplate="<b>%{customdata}</b><br>%{text}<extra></extra>",
+    )
+)
+
+# Halo
+fig.add_trace(
+    go.Scatter(
+        x=scaled_x,
+        y=scaled_y,
+        mode="markers",
+        marker=dict(size=30, color="yellow", opacity=0.2),
+        hoverinfo="skip"
+    )
+)
 
 fig.update_layout(
-    dragmode=False,
-    autosize=False,
-    width=1000,
-    height=800,
+    width=FIXED_W,
+    height=FIXED_H,
     margin=dict(l=0, r=0, t=0, b=0),
-    clickmode='event+select'
+    dragmode=False,
+    plot_bgcolor="rgba(0,0,0,0)",
+    paper_bgcolor="rgba(0,0,0,0)",
 )
 
-# Ajout des bulles
-x_points, y_points, hover_texts, locations = [], [], [], []
-for lieu, pokes in pokemon_by_location.items():
-    if lieu in coords:
-        x, y = coords[lieu]
-        x_points.append(x)
-        y_points.append(y)
-        locations.append(lieu)
-        hover_texts.append(f"{len(pokes)} Pokémon<br><b>Plus →</b>")
-
-# Trace cliquable
-fig.add_trace(
-    go.Scatter(
-        x=x_points,
-        y=y_points,
-        mode="markers",
-        marker=dict(size=40, color="white", opacity=0.25,
-                    line=dict(width=2, color="black")),
-        hoverinfo="text",
-        text=hover_texts,
-        customdata=locations,
-        hovertemplate="<b>%{customdata}</b><br>%{text}<extra></extra>"
-    )
+# ---------------------------------------------------------
+# CENTRAGE DE LA CARTE
+# ---------------------------------------------------------
+st.markdown(
+    f"""
+    <div style="display:flex; justify-content:center; width:100%; margin-top:10px;">
+        <div style="width:{FIXED_W}px; height:{FIXED_H}px;">
+    """,
+    unsafe_allow_html=True
 )
 
-# Survol (halo)
-fig.add_trace(
-    go.Scatter(
-        x=x_points,
-        y=y_points,
-        mode="markers",
-        marker=dict(size=55, color="yellow", opacity=0.08),
-        hoverinfo="skip",
-        showlegend=False
-    )
+click_info = plotly_events(
+    fig,
+    click_event=True,
+    hover_event=False,
+    select_event=False,
+    override_width=FIXED_W,
+    override_height=FIXED_H
 )
 
-# 👉 UNIQUE affichage (correct)
-plot = st.plotly_chart(fig, use_container_width=True)
+st.markdown("</div></div>", unsafe_allow_html=True)
 
-# Gestion clic
-if 'clicked_location' not in st.session_state:
+# ---------------------------------------------------------
+# SESSION STATE
+# ---------------------------------------------------------
+if "clicked_location" not in st.session_state:
     st.session_state.clicked_location = None
     st.session_state.clicked_pokemon_list = []
     st.session_state.clicked_pokemon = None
 
-selected = fig.data[0].selectedpoints
-if selected:
-    idx = selected[0]
-    st.session_state.clicked_location = locations[idx]
-    st.session_state.clicked_pokemon_list = pokemon_by_location[locations[idx]]
+if click_info:
+    idx = click_info[0]["pointIndex"]
+    lieu = locations[idx]
+    st.session_state.clicked_location = lieu
+    st.session_state.clicked_pokemon_list = pokemon_by_location[lieu]
+    st.session_state.clicked_pokemon = None
 
-# Liste Pokémon
+# ---------------------------------------------------------
+# LISTE DES POKÉMON
+# ---------------------------------------------------------
 if st.session_state.clicked_location:
     lieu = st.session_state.clicked_location
-    with st.expander(f"Pokémon trouvés à {lieu}"):
-        for poke in st.session_state.clicked_pokemon_list:
-            if st.button(poke["name"], key=f"btn-{poke['name']}"):
-                st.session_state.clicked_pokemon = poke
+    with st.expander(f"Pokémon trouvés à {lieu}", expanded=True):
+        search_term = st.text_input("Rechercher un Pokémon")
+        for i, poke in enumerate(st.session_state.clicked_pokemon_list):
+            if search_term.lower() in poke["name"].lower():
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.write(f"- **{poke['name']}** (ID: {poke['pokemon_id']})")
+                unique_key = f"details-{poke['pokemon_id']}-{poke['location']}-{i}"
+                with col2:
+                    if st.button("Détails", key=unique_key):
+                        st.session_state.clicked_pokemon = poke
 
-# Détail Pokémon
+# ---------------------------------------------------------
+# DÉTAILS POKÉMON
+# ---------------------------------------------------------
 if st.session_state.clicked_pokemon:
     p = st.session_state.clicked_pokemon
     st.subheader(f"{p['name']}")
     st.write(f"ID : {p['pokemon_id']}")
     st.write(f"Location : {p['location']}")
 
-# Données brutes
-st.subheader("Données brutes")
-st.dataframe(df)
+# ---------------------------------------------------------
+# DONNÉES BRUTES
+# ---------------------------------------------------------
+with st.expander("Données brutes"):
+    st.dataframe(df_region)
