@@ -1,4 +1,4 @@
-pokemon_id,pokemon_name,location_area,location,region,generation
+pokemon_id,name,location_area,location,region,generation
 1,bulbasaur,cerulean-city-area,cerulean-city,kanto,1
 1,bulbasaur,pallet-town-area,pallet-town,kanto,1
 1,bulbasaur,lumiose-city-area,lumiose-city,kalos,1
