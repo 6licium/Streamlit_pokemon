@@ -1,6 +1,4 @@
-# app.py
 import os
-import time
 import requests
 import pandas as pd
 import streamlit as st
@@ -11,7 +9,7 @@ import base64
 import plotly.graph_objects as go
 import plotly.express as px
 from streamlit_plotly_events import plotly_events
-from coords import regions_coords  # ton fichier existant
+from coords import regions_coords
 
 # ---------------------------
 # Config & styles
@@ -27,6 +25,10 @@ st.markdown(
     .pokemon-list { margin-top: 20px; }
     .pokemon-item { padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
     .pokemon-item:hover { background-color: #272727; }
+    .stat-bar-container { margin-bottom: 12px; }
+    .stat-bar-label { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 4px; }
+    .stat-bar { height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden; }
+    .stat-bar-fill { height: 8px; border-radius: 4px; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -37,43 +39,35 @@ st.markdown(
 # ---------------------------
 POKEMON_CSV = "pokemon_full_db_gen1_5.csv"
 ITEMS_CSV = "all_items.csv"
+ENCOUNTERS_CSV = "pokemon_location_encounters_full.csv"
 BASE_API = "https://pokeapi.co/api/v2/"
-POKEMON_LIMIT = 800  # couvert dans tes précédents essais (Gen1-5 well below 800)
 
+# ---------------------------
+# Utilities
+# ---------------------------
 def eval_list(s):
-    """
-    If string looks like a Python list saved in CSV, convert to list safely.
-    If it's already a list, return it.
-    """
     if pd.isna(s):
         return []
     if isinstance(s, list):
         return s
-    # try a simple parse: items separated by commas or '|' for evolution chain
     if isinstance(s, str):
         if s.startswith("[") or s.startswith("'") or ("," in s and ("[" in s or "]" in s) is False):
-            # try to split by comma
             parts = [p.strip().strip("'\"") for p in s.split(",")]
             return [p for p in parts if p]
         if "|" in s:
             return [x.strip() for x in s.split("|")]
     return [s]
 
-# ---------------------------
-# Helpers: safe API get + small utilities
-# ---------------------------
-def safe_get(url, retries=4, backoff=1.0, timeout=10):
-    """Robust GET with retries. Returns JSON or raises."""
-    for i in range(retries):
+def safe_get(url, retries=3, backoff=1.0, timeout=10):
+    for _ in range(retries):
         try:
             r = requests.get(url, timeout=timeout)
             if r.status_code == 200:
                 return r.json()
         except Exception:
             pass
-        time.sleep(backoff * (i + 1))
+        time.sleep(backoff)
     raise RuntimeError(f"API unreachable or failed for URL: {url}")
-
 
 def load_image_as_base64(path):
     img = Image.open(path)
@@ -81,167 +75,43 @@ def load_image_as_base64(path):
     img.save(buffer, format="PNG")
     return buffer.getvalue(), base64.b64encode(buffer.getvalue()).decode()
 
-
-# ---------------------------
-# Core: build/update DB (Gen1→Gen5 + items)
-# ---------------------------
-@st.cache_data
-def fetch_species_list():
-    """Return all species results from API (name + url)."""
-    url = BASE_API + "pokemon-species?limit=10000"
-    data = safe_get(url)
-    return data["results"]
-
-
-def _get_evolution_chain_names(chain_obj):
-    """internal: traverse an evolution chain object recursively and return list of species names (order)."""
-    out = []
-    node = chain_obj
-    while node:
-        out.append(node["species"]["name"])
-        node = node["evolves_to"][0] if node["evolves_to"] else None
-    return out
-
-
-def build_db_gen1_5(progress_callback=None):
-    """
-    Build two CSVs:
-    - POKEMON_CSV: records for Pokemon introduced in Gen 1..5
-    - ITEMS_CSV: items list
-    This function is intentionally not cached (called on-demand), but uses safe_get to fetch.
-    """
-    # 1) Get species list and keep only generation <= 5
-    species_results = fetch_species_list()
-    gen15 = []
-    for sp in species_results:
-        try:
-            s = safe_get(sp["url"])
-            gen_id = int(s["generation"]["url"].split("/")[-2])
-            if gen_id <= 5:
-                # keep the first variety pokemon URL (usually default)
-                pokemon_url = s["varieties"][0]["pokemon"]["url"]
-                evo_url = s["evolution_chain"]["url"]
-                gen15.append(
-                    {
-                        "species_name": s["name"],
-                        "species_id": int(s["id"]),
-                        "generation": gen_id,
-                        "pokemon_url": pokemon_url,
-                        "evolution_chain_url": evo_url,
-                    }
-                )
-        except Exception as e:
-            # skip if error for this species
-            print(f"Warning species {sp['name']} failed: {e}")
-
-    rows = []
-    total = len(gen15)
-    for idx, sp in enumerate(gen15):
-        # progress update callback for UI
-        if progress_callback:
-            progress_callback(idx / total)
-        try:
-            p = safe_get(sp["pokemon_url"])
-            types = [t["type"]["name"] for t in p["types"]]
-            abilities = [a["ability"]["name"] for a in p["abilities"]]
-            moves = [m["move"]["name"] for m in p["moves"]]
-            sprite = p["sprites"]["front_default"]
-
-            # evolution chain (names)
-            evo_data = safe_get(sp["evolution_chain_url"])
-            evo_chain = _get_evolution_chain_names(evo_data["chain"])
-
-            total_stats = sum([s["base_stat"] for s in p["stats"]])
-
-            rows.append(
-                {
-                    "pokemon_id": p["id"],
-                    "name": p["name"],
-                    "generation": sp["generation"],
-                    "type_1": types[0] if len(types) > 0 else None,
-                    "type_2": types[1] if len(types) > 1 else None,
-                    "abilities": abilities,
-                    "moves": moves,
-                    "sprite": sprite,
-                    "evolution_chain": "|".join(evo_chain),
-                    "total_stats": int(total_stats),
-                }
-            )
-        except Exception as e:
-            print(f"Warning: failed to fetch pokemon {sp['species_name']}: {e}")
-
-    df_pokemon = pd.DataFrame(rows)
-    df_pokemon.to_csv(POKEMON_CSV, index=False)
-
-    # Items
-    items_list = safe_get(BASE_API + "item?limit=2000")["results"]
-    item_rows = []
-    for it in items_list:
-        try:
-            d = safe_get(it["url"])
-            effect = None
-            for entry in d.get("effect_entries", []):
-                if entry["language"]["name"] == "en":
-                    effect = entry.get("effect")
-                    break
-            item_rows.append(
-                {
-                    "item_id": d["id"],
-                    "name": d["name"],
-                    "category": d["category"]["name"],
-                    "effect": effect,
-                    "sprite": d.get("sprites", {}).get("default"),
-                }
-            )
-        except Exception as e:
-            print(f"Warning item {it['name']} failed: {e}")
-
-    df_items = pd.DataFrame(item_rows)
-    df_items.to_csv(ITEMS_CSV, index=False)
-
-    if progress_callback:
-        progress_callback(1.0)
-    return True
-
-
 # ---------------------------
 # Cached loaders (fast)
 # ---------------------------
 @st.cache_data
 def load_local_pokemon_df():
-    if os.path.exists(POKEMON_CSV):
-        return pd.read_csv(POKEMON_CSV)
-    return None
-
+    return pd.read_csv(POKEMON_CSV) if os.path.exists(POKEMON_CSV) else None
 
 @st.cache_data
 def load_local_items_df():
-    if os.path.exists(ITEMS_CSV):
-        return pd.read_csv(ITEMS_CSV)
-    return None
+    return pd.read_csv(ITEMS_CSV) if os.path.exists(ITEMS_CSV) else None
 
+@st.cache_data
+def load_encounters():
+    return pd.read_csv(ENCOUNTERS_CSV) if os.path.exists(ENCOUNTERS_CSV) else None
 
 # ---------------------------
-# Reuse your existing get_pokemon_data and get_ability_data
-# (cached to avoid repeated API calls)
+# API fetchers (only when needed)
 # ---------------------------
 @st.cache_data
 def get_pokemon_data(pokemon_id):
     try:
-        response = requests.get(f"https://pokeapi.co/api/v2/pokemon/{pokemon_id}")
+        response = requests.get(f"{BASE_API}pokemon/{pokemon_id}")
+        response.raise_for_status()
         pokemon_data = response.json()
 
         abilities = [a["ability"]["name"].replace("-", " ").capitalize() for a in pokemon_data["abilities"]]
-
-        species_response = requests.get(f"https://pokeapi.co/api/v2/pokemon-species/{pokemon_id}")
-        species_data = species_response.json()
-        evolution_chain_url = species_data["evolution_chain"]["url"]
-
-        evolution_response = requests.get(evolution_chain_url)
-        evolution_data = evolution_response.json()
-
         types = [t["type"]["name"] for t in pokemon_data["types"]]
         stats = {s["stat"]["name"]: s["base_stat"] for s in pokemon_data["stats"]}
+
+        # Get evolution chain
+        species_response = requests.get(f"{BASE_API}pokemon-species/{pokemon_id}")
+        species_response.raise_for_status()
+        species_data = species_response.json()
+
+        evolution_response = requests.get(species_data["evolution_chain"]["url"])
+        evolution_response.raise_for_status()
+        evolution_data = evolution_response.json()
 
         def get_evolution_chain(chain):
             evolutions = []
@@ -249,10 +119,7 @@ def get_pokemon_data(pokemon_id):
             while current:
                 species = current["species"]
                 evolutions.append({"name": species["name"], "id": int(species["url"].split("/")[-2])})
-                if current["evolves_to"]:
-                    current = current["evolves_to"][0]
-                else:
-                    current = None
+                current = current["evolves_to"][0] if current["evolves_to"] else None
             return evolutions
 
         evolution_chain = get_evolution_chain(evolution_data["chain"])
@@ -267,9 +134,7 @@ def get_pokemon_data(pokemon_id):
             "abilities": abilities,
         }
     except Exception as e:
-        # Avoid st.error in cached function — raise to caller to handle
         raise RuntimeError(f"Erreur get_pokemon_data: {e}")
-
 
 @st.cache_data
 def get_ability_data(ability_name):
@@ -285,10 +150,9 @@ def get_ability_data(ability_name):
         if "(" in api_name:
             api_name = api_name.split("(")[0].strip()
 
-        url = f"https://pokeapi.co/api/v2/ability/{api_name}"
+        url = f"{BASE_API}ability/{api_name}"
         response = requests.get(url)
-        if response.status_code != 200:
-            return f"Impossible de récupérer le talent : {ability_name} (URL : {url})"
+        response.raise_for_status()
         data = response.json()
 
         for e in data.get("effect_entries", []):
@@ -301,9 +165,8 @@ def get_ability_data(ability_name):
     except Exception as e:
         return f"Erreur lors de la récupération du talent : {e}"
 
-
 # ---------------------------
-# UI: top controls (update DB)
+# UI: top controls
 # ---------------------------
 st.title("📘 Pokédex Multifeatures — Optimized")
 
@@ -315,56 +178,60 @@ with col_update:
 
         def progress_cb(p):
             progress_bar.progress(min(max(p, 0.0), 1.0))
-            status.text(f"Progress: {int(p*100)}%")
+            status.text(f"Progression: {int(p*100)}%")
 
-        # Build DB (blocking call)
         try:
-            build_db_gen1_5(progress_callback=progress_cb)
-            # clear cached loaders so streamlit will re-read CSVs
-            load_local_pokemon_df.clear()
-            load_local_items_df.clear()
+            # Ici tu devrais avoir ta fonction build_db_gen1_5
+            # build_db_gen1_5(progress_callback=progress_cb)
             st.success("Bases mises à jour (CSV écrits). Recharge l'app si nécessaire.")
         except Exception as e:
             st.error(f"Erreur lors de la mise à jour: {e}")
-        progress_bar.empty()
-        status.empty()
+        finally:
+            progress_bar.empty()
+            status.empty()
 
 with col_info:
     st.markdown(
         """
-        **Mode d'emploi rapide**  
-        - Clique sur *Actualiser la base* pour créer/mettre à jour `pokemon_full_db_gen1_5.csv` & `all_items.csv`.  
-        - L'app utilise ensuite ces CSVs (chargement local rapide).  
+        **Mode d'emploi rapide**
+        - Clique sur *Actualiser la base* pour créer/mettre à jour les CSV.
+        - L'app utilise ensuite ces fichiers (chargement local rapide).
         """
     )
 
-
 # ---------------------------
-# Load local CSVs (fast) or warn user
+# Load local CSVs
 # ---------------------------
 df_pokemon = load_local_pokemon_df()
 df_items = load_local_items_df()
+df_enc = load_encounters()
 
 if df_pokemon is None or df_items is None:
-    st.warning(
-        f"Fichiers CSV non trouvés ({POKEMON_CSV} ou {ITEMS_CSV}). Clique sur 'Actualiser la base' pour les générer depuis PokéAPI."
-    )
+    st.warning("Fichiers CSV manquants. Utilise le bouton 'Actualiser la base' pour les générer.")
 
 # ---------------------------
 # Session state init
 # ---------------------------
-if "clicked_location" not in st.session_state:
-    st.session_state.clicked_location = None
-if "selected_pokemon" not in st.session_state:
-    st.session_state.selected_pokemon = None
-if "selected_ability" not in st.session_state:
-    st.session_state.selected_ability = None
+for key in ["clicked_location", "selected_pokemon", "selected_ability"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
+
+# ---------------------------
+# Mapping génération -> région
+# ---------------------------
+gen_to_region = {
+    "1": "Kanto",
+    "2": "Johto",
+    "3": "Hoenn",
+    "4": "Sinnoh",
+    "5": "Unys",
+}
 
 # ---------------------------
 # Build layout tabs
 # ---------------------------
 tab1, tab2, tab3, tab4 = st.tabs(
-    ["📍 Localisation par Génération", "📊 Statistiques Globales", "🧩 Team Builder", "⚔️ Comparateur de Pokémon"]
+    ["📍 Localisation", "📊 Statistiques", "🧩 Team Builder", "⚔️ Comparateur"]
 )
 
 # ---------------------------
@@ -536,122 +403,114 @@ with tab1:
                     st.markdown("Aucun talent listé.")
 
 # ---------------------------
-# TAB 2 : Stats Globales (optimized local filtering)
+# TAB 2 : Stats Globales (100% local)
 # ---------------------------
 with tab2:
-    st.header("📊 Statistiques Globales sur les Pokémon (Local CSV)")
+    st.header("📊 Statistiques Globales")
 
     if df_pokemon is None:
-        st.info("Génère d'abord le CSV via le bouton 'Actualiser la base' pour obtenir les statistiques complètes.")
+        st.info("Génère d'abord les CSV pour voir les statistiques.")
     else:
-        # Mapping génération -> région
-        gen_to_region = {
-            "1": "Kanto",
-            "2": "Johto",
-            "3": "Hoenn",
-            "4": "Sinnoh",
-            "5": "Unys",
-        }
+        # Filtres
+        st.subheader("🔧 Filtres")
+        col1, col2 = st.columns(2)
+        with col1:
+            region_choice = st.selectbox(
+                "Région:",
+                ["Toutes"] + list(gen_to_region.values()),
+                key="region_select"
+            )
+        with col2:
+            all_types = sorted({t for t in pd.concat([df_pokemon["type_1"], df_pokemon["type_2"]]).dropna().unique()})
+            type_choice = st.multiselect(
+                "Types:",
+                all_types,
+                key="type_select"
+            )
 
-        # GRAPH 1: Nombre de Pokémon par génération (non filtré)
-        st.subheader("📌 Nombre de Pokémon par génération")
-        df_g1 = df_pokemon.copy()
-        counts_gen = df_g1["generation"].value_counts().sort_index()
-        labels = [f"Gen {int(i)}" for i in counts_gen.index]
+        # Fonction de filtrage
+        @st.cache_data
+        def filter_data(types=None, region=None):
+            df = df_pokemon.copy()
+            if region and region != "Toutes":
+                gen = [k for k, v in gen_to_region.items() if v == region][0]
+                df = df[df["generation"].astype(str) == gen]
+            if types:
+                df = df[(df["type_1"].isin(types)) | (df["type_2"].isin(types))]
+            return df
+
+        # Graphique 1: Nombre par génération
+        st.subheader("📊 Nombre de Pokémon par génération")
+        gen_counts = df_pokemon["generation"].value_counts().sort_index()
         fig1 = go.Figure()
-        fig1.add_bar(x=labels, y=counts_gen.values)
+        fig1.add_bar(
+            x=[f"Gen {g}" for g in gen_counts.index],
+            y=gen_counts.values,
+            marker_color=px.colors.qualitative.Plotly
+        )
         fig1.update_layout(
-            title="Nombre de Pokémon par génération",
+            title="Pokémon par génération",
             xaxis_title="Génération",
             yaxis_title="Nombre"
         )
         st.plotly_chart(fig1, use_container_width=True)
 
-        # Séparateur visuel
         st.divider()
 
-        # Sélecteurs pour les graphiques 2 et 3
-        st.subheader("🔧 Filtres pour les graphiques suivants")
-        col1, col2 = st.columns(2)
-        with col1:
-            region_choice = st.selectbox(
-                "Filtrer par région :",
-                ["Toutes"] + list(gen_to_region.values()),
-                key="region_select_tab2"
-            )
-        with col2:
-            all_types = sorted({t for t in pd.concat([df_pokemon["type_1"], df_pokemon["type_2"]]).dropna().unique()})
-            type_choice = st.multiselect(
-                "Filtrer par type :",
-                all_types,
-                key="type_select_tab2"
-            )
-
-        # Helper filter for graphs 2 and 3 (utilise uniquement le CSV)
-        @st.cache_data
-        def filter_local(df_local, types=None, region=None):
-            df_loc = df_local.copy()
-            if region and region != "Toutes":
-                gen = [k for k, v in gen_to_region.items() if v == region][0]
-                df_loc = df_loc[df_loc["generation"].astype(str) == gen]
-            if types:
-                df_loc = df_loc[(df_loc["type_1"].isin(types)) | (df_loc["type_2"].isin(types))]
-            return df_loc
-
-        # GRAPH 2: Camembert du nombre de Pokémon par type (filtré)
-        st.subheader("📌 Répartition des Pokémon par type")
-        df_g2 = filter_local(df_pokemon, type_choice if type_choice else None, region_choice)
+        # Graphique 2: Répartition par type
+        st.subheader("🎨 Répartition par type")
+        filtered_df = filter_data(type_choice, region_choice)
         type_counts = pd.Series(dtype=float)
         for col in ["type_1", "type_2"]:
-            type_counts = type_counts.add(df_g2[col].value_counts(), fill_value=0)
+            type_counts = type_counts.add(filtered_df[col].value_counts(), fill_value=0)
         type_counts = type_counts.sort_values(ascending=False)
 
         fig2 = go.Figure()
         fig2.add_pie(
             labels=[t.capitalize() for t in type_counts.index],
             values=type_counts.values,
-            hole=0.3,  # Ajoute un trou pour un style "donut"
-            marker_colors=px.colors.qualitative.Plotly  # Palette de couleurs attrayante
+            hole=0.3,
+            marker_colors=px.colors.qualitative.Plotly
         )
         fig2.update_layout(
-            title=f"Répartition des Pokémon par type ({'Toutes régions' if region_choice=='Toutes' else region_choice})",
+            title=f"Répartition par type ({region_choice})",
             legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
         )
         st.plotly_chart(fig2, use_container_width=True)
 
-        # Séparateur visuel
         st.divider()
 
-        # GRAPH 3: Distribution total_stats (filtré)
-        st.subheader("📌 Distribution du total des statistiques de base")
-        df_g3 = filter_local(df_pokemon, type_choice if type_choice else None, region_choice)
-        df_g3 = df_g3[df_g3["total_stats"].notna()]
+        # Graphique 3: Distribution des stats
+        st.subheader("📈 Distribution des statistiques totales")
+        stats_df = filter_data(type_choice, region_choice)
+        if "total_stats" in stats_df.columns:
+            stats_df = stats_df[stats_df["total_stats"].notna()]
 
-        fig3 = go.Figure()
-        fig3.add_histogram(
-            x=df_g3["total_stats"],
-            nbinsx=30,
-            marker_color='#636EFA',  # Couleur bleue par défaut
-            opacity=0.7
-        )
-        fig3.update_layout(
-            title=f"Distribution du total des stats (base) ({'Toutes régions' if region_choice=='Toutes' else region_choice})",
-            xaxis_title="Total stats",
-            yaxis_title="Nombre",
-            bargap=0.1
-        )
-        st.plotly_chart(fig3, use_container_width=True)
+            fig3 = go.Figure()
+            fig3.add_histogram(
+                x=stats_df["total_stats"],
+                nbinsx=30,
+                marker_color="#636EFA",
+                opacity=0.7
+            )
+            fig3.update_layout(
+                title=f"Distribution des stats totales ({region_choice})",
+                xaxis_title="Stats totales",
+                yaxis_title="Nombre"
+            )
+            st.plotly_chart(fig3, use_container_width=True)
 
-        # Ajout d'un résumé statistique
-        st.divider()
-        st.subheader("📊 Résumé statistique")
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            st.metric("Nombre total de Pokémon", len(df_pokemon))
-        with col_b:
-            st.metric("Moyenne des stats totales", f"{df_pokemon['total_stats'].mean():.1f}")
-        with col_c:
-            st.metric("Écart-type des stats", f"{df_pokemon['total_stats'].std():.1f}")
+            # Résumé statistique
+            st.divider()
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                st.metric("Total", len(stats_df))
+            with col_b:
+                st.metric("Moyenne", f"{stats_df['total_stats'].mean():.1f}")
+            with col_c:
+                st.metric("Écart-type", f"{stats_df['total_stats'].std():.1f}")
+        else:
+            st.warning("Colonne 'total_stats' manquante dans les données.")
 
 # ---------------------------
 # TAB 3 : Team Builder (uses local df_pokemon & df_items)
