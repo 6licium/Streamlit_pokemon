@@ -453,21 +453,35 @@ with tab2:
         st.divider()
 
         with col1:
-        # Graphique 1: Nombre par génération
+            # Graphique 1: Nombre par génération
             st.subheader("📊 Nombre de Pokémon par génération")
-            gen_counts = df_pokemon["generation"].value_counts().sort_index()
+
+            # Filtrer uniquement par type (sans filtre de région)
+            filtered_df_gen = filter_data(types=type_choice)
+
+            # Calcul des comptes par génération sur les données filtrées
+            gen_counts = filtered_df_gen["generation"].value_counts().sort_index()
+
+            # Création du graphique
             fig1 = go.Figure()
             fig1.add_bar(
                 x=[f"Gen {g}" for g in gen_counts.index],
                 y=gen_counts.values,
                 marker_color=px.colors.qualitative.Plotly
             )
+
+            # Mise à jour du titre pour refléter les filtres de type
+            title = "Pokémon par génération"
+            if type_choice:
+                title += f" (Types: {', '.join(type_choice)})"
+
             fig1.update_layout(
-                title="Pokémon par génération",
+                title=title,
                 xaxis_title="Génération",
                 yaxis_title="Nombre"
             )
-            st.plotly_chart(fig1)
+            st.plotly_chart(fig1, use_container_width=True)
+
 
             # st.divider()
 
