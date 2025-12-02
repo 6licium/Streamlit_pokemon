@@ -10,6 +10,17 @@ Données :
 Mes données sont toutes tirées de l'API PokeAPI, elles contiennent des statistiques quantitatives discrètes, comme les statistiques d'attaque ou de défense ... .
 Mais aussi une partie d'images avec les sprites des pokemons et items, et enfin des parties textuelles avec les talents, leurs descriptions, la description des items, le nom de la région, l'id du pokemon, leur type, leur zone de rencontre.
 J'ai aussi des données crées à la main qui sont les coordonnées de mes localités (faites à la main), le nom de celles ci.
+J'ai formé les données grâce à des scripts python pour qu'elles soient bien formatées comme je le voulais. Elles sont donc exportées dans différents csv par appel API.
 
 Streamlit :
 
+L'application contient 4 pages totalement différentes.
+La première page contient les cartes des jeux pokemons avec des points représentants les localités où il y a des pokemon et quand on selectionne un point puis un pokemon on retrouve son type famille d'évolution statistiques et talents.
+La deuxième page contient des statistiques sur les pokemon et régions modulables avec les types et régions.
+La troisième page contient un team builder avec selection du pokemon choisi puis ses statistiques et types, choix du talent, des attaques et de l'objet porté par le pokémon.
+La quatrième page contient un comparateur assez primitif mais fonctionnel il est basé sur les statistiques et les types pour donner quel pokémon des deux comparés a le plus de chances de gagner le duel.
+
+Difficultés : 
+
+J'ai eu beaucoup de problème à utiliser et trouver les fonctions de plotly et leur adaptation à streamlit avec les fonctions natives de streamlit.
+J'ai eu aussi des problèmes avec mes données qui ont été totalement crées pour cette utilisation comme les cartes et les location encounter (la où l'on trouve les pokemon).

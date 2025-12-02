@@ -751,7 +751,7 @@ with tab3:
                                 try:
                                     item_data = df_items[df_items["name"].str.lower() == selected_item.lower()].iloc[0]
                                     st.write(f"**📦 Item:** {item_data['name'].capitalize()}")
-                                    
+
                                     if pd.notna(item_data["effect"]):
                                         with st.expander("Voir l'effet"):
                                             
@@ -833,7 +833,7 @@ with tab3:
                 )
 
 with tab4:
-    st.header("⚔️ Comparateur de Pokémon (2 vs 2)")
+    st.header("⚔️ Comparateur de Pokémon (1 vs 1)")
 
     if df_pokemon is None:
         st.info("Génère d'abord le CSV pour comparer.")
