@@ -168,7 +168,7 @@ def get_ability_data(ability_name):
 # ---------------------------
 # UI: top controls
 # ---------------------------
-st.title("📘 Pokédex Multifeatures — Optimized")
+st.title("📘 Pokédex Multifeatures")
 
 col_update, col_info = st.columns([1, 3])
 with col_update:
@@ -296,7 +296,7 @@ with tab1:
         fig.add_trace(go.Scatter(
             x=x_points, y=[FIXED_HEIGHT - y for y in y_points],
             mode="markers",
-            marker=dict(size=14, color="rgba(255,215,0,0.8)", line=dict(width=1, color="rgba(200,180,0,0.7)")),
+            marker=dict(size=15, color="rgba(150,50,100,0.8)", line=dict(width=1, color="rgba(200,180,0,0.7)")),
             customdata=locations, hoverinfo="text", hovertext=hover_texts, hovertemplate="%{hovertext}<extra></extra>"
         ))
         fig.update_xaxes(visible=False, range=[0, FIXED_WIDTH], fixedrange=True)
