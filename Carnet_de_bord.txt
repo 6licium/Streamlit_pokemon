@@ -1,0 +1,15 @@
+Dans ce carnet de bord je vais aborder les étapes et choix faits pendant ce projet.
+
+Création du projet : 
+
+Je voulais créer une application permettant de retrouver les pokemon dans chaque région sur la carte atrribuée.
+Mais aussi pouvoir faciliter la création d'équipe pour pouvoir jouer aux jeux sans passer trop de temps à chercher ce que l'on veut.
+
+Données : 
+
+Mes données sont toutes tirées de l'API PokeAPI, elles contiennent des statistiques quantitatives discrètes, comme les statistiques d'attaque ou de défense ... .
+Mais aussi une partie d'images avec les sprites des pokemons et items, et enfin des parties textuelles avec les talents, leurs descriptions, la description des items, le nom de la région, l'id du pokemon, leur type, leur zone de rencontre.
+J'ai aussi des données crées à la main qui sont les coordonnées de mes localités (faites à la main), le nom de celles ci.
+
+Streamlit :
+

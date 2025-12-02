@@ -751,8 +751,10 @@ with tab3:
                                 try:
                                     item_data = df_items[df_items["name"].str.lower() == selected_item.lower()].iloc[0]
                                     st.write(f"**📦 Item:** {item_data['name'].capitalize()}")
+                                    
                                     if pd.notna(item_data["effect"]):
                                         with st.expander("Voir l'effet"):
+                                            
                                             st.write(item_data["effect"])
                                 except IndexError:
                                     st.warning("Item non trouvé dans la base de données.")
@@ -761,7 +763,7 @@ with tab3:
                             st.session_state.team[i] = {
                                 "pokemon": pokemon_csv.to_dict(),
                                 "pokemon_api": pokemon_api,
-                                "item": item_data.to_dict() if item_data else None,
+                                "item": item_data.to_dict() if item_data is not None else None,
                                 "types": pokemon_api["types"],
                                 "moves": selected_moves,
                                 "ability": selected_ability
