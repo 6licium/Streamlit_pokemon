@@ -1,5 +1,7 @@
 Dans ce carnet de bord je vais aborder les étapes et choix faits pendant ce projet.
 
+https://6kg7a8dxhxrwkc2xmgxhhr.streamlit.app/
+
 Création du projet : 
 
 Je voulais créer une application permettant de retrouver les pokemon dans chaque région sur la carte atrribuée.
